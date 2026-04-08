@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RawStaticFinding(BaseModel):
@@ -16,6 +16,8 @@ class RawStaticFinding(BaseModel):
 
     These findings are later merged and scored by the trace-model package.
     """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     finding_id: str = Field(description="UUID for this finding")
     parser_name: str = Field(description="Name of the parser that produced this finding")
@@ -65,6 +67,8 @@ class RawStaticFinding(BaseModel):
 
 class ParameterFinding(BaseModel):
     """Parameter extracted from static analysis."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     name: str
     location: Literal["path", "query", "header", "body", "cookie", "unknown"] = "unknown"

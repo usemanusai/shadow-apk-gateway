@@ -6,6 +6,7 @@ Implements URL normalization, clustering, merging, and deduplication.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import uuid
 from collections import defaultdict
@@ -29,11 +30,120 @@ from packages.trace_model.src.inference import (
     infer_idempotency,
 )
 
-# URL normalization patterns
-UUID_PATTERN = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+# ═══════════════════════════════════════════════════════════════════════════════
+# URL Normalization Patterns — Multi-Tier Classification
+#
+# Tier 1: UUID (deterministic, always correct)
+# Tier 2: Integer IDs
+# Tier 3: Hex hashes — strict charset + length whitelist for standard hash sizes
+# Tier 4: Base64 tokens — requires len%4==0 AND non-hex chars to disambiguate
+# Tier 5: Opaque tokens — high-entropy alphanumeric strings (catchall)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+UUID_PATTERN = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I
+)
 INTEGER_PATTERN = re.compile(r'^\d+$')
-BASE64_PATTERN = re.compile(r'^[A-Za-z0-9+/=]{20,}$')
-HEX_PATTERN = re.compile(r'^[0-9a-f]{16,}$', re.I)
+
+# Strict hex: ONLY hex chars. Length whitelist covers standard hash outputs:
+#   MD5=32, SHA-1=40, SHA-224=56, SHA-256=64, SHA-384=96, SHA-512=128,
+#   HMAC-truncated=16,20,24,48
+STRICT_HEX_PATTERN = re.compile(r'^[0-9a-f]+$', re.I)
+STANDARD_HASH_LENGTHS = frozenset({16, 20, 24, 32, 40, 48, 56, 64, 96, 128})
+
+# Base64 strict: must contain at least one char outside hex charset to disambiguate.
+# Valid base64 chars: A-Z a-z 0-9 + / =
+# URL-safe base64 chars: A-Z a-z 0-9 - _
+BASE64_CHARSET = re.compile(r'^[A-Za-z0-9+/=_-]+$')
+# Characters that disambiguate base64 from hex (uppercase, +, /, =, -, _)
+BASE64_DISAMBIGUATORS = re.compile(r'[A-Z+/=_-]')
+
+# Opaque token: high-entropy alphanumeric string (20+ chars)
+ALPHANUMERIC_PATTERN = re.compile(r'^[A-Za-z0-9._~-]+$')
+
+
+def _shannon_entropy(s: str) -> float:
+    """Compute Shannon entropy (bits per character) of a string.
+
+    - Pure hex data: ~3.0-4.0 bits/char
+    - Random base64: ~5.0-6.0 bits/char
+    - English text: ~1.0-3.0 bits/char
+    - Single repeated char: 0.0 bits/char
+    """
+    if not s:
+        return 0.0
+    length = len(s)
+    freq: dict[str, int] = {}
+    for ch in s:
+        freq[ch] = freq.get(ch, 0) + 1
+    entropy = 0.0
+    for count in freq.values():
+        p = count / length
+        if p > 0:
+            entropy -= p * math.log2(p)
+    return entropy
+
+
+def _classify_segment(segment: str) -> Optional[str]:
+    """Classify a URL path segment into a template variable type.
+
+    Returns the template variable name (e.g., "{uuid}", "{id}", "{hash}", "{token}")
+    or None if the segment should be preserved as-is.
+
+    Classification priority:
+    1. UUID — always matches deterministically
+    2. Integer — pure digits, ≤20 chars
+    3. Hex hash — strict hex charset + standard hash length
+    4. Base64 token — len%4==0 + contains non-hex disambiguator chars
+    5. Opaque token — high-entropy alphanumeric ≥20 chars
+    """
+    if not segment:
+        return None
+
+    seg_len = len(segment)
+
+    # Tier 1: UUID
+    if UUID_PATTERN.match(segment):
+        return "{uuid}"
+
+    # Tier 2: Integer ID
+    if INTEGER_PATTERN.match(segment) and seg_len <= 20:
+        return "{id}"
+
+    # Tier 3: Hex hash — strict hex charset + known hash length
+    if STRICT_HEX_PATTERN.match(segment) and seg_len in STANDARD_HASH_LENGTHS:
+        return "{hash}"
+
+    # Tier 4: Base64 token
+    # Requirements:
+    #   a) Only base64-valid characters
+    #   b) Length >= 20
+    #   c) Length % 4 == 0 (proper base64 padding)
+    #   d) Contains at least one character that disambiguates from hex
+    if (
+        seg_len >= 20
+        and seg_len % 4 == 0
+        and BASE64_CHARSET.match(segment)
+        and BASE64_DISAMBIGUATORS.search(segment)
+    ):
+        return "{token}"
+
+    # Tier 5: Opaque token — high-entropy alphanumeric ≥20 chars
+    # Uses Shannon entropy to detect random-looking strings
+    if seg_len >= 20 and ALPHANUMERIC_PATTERN.match(segment):
+        entropy = _shannon_entropy(segment)
+        # Entropy > 3.5 bits/char indicates likely random/opaque data
+        if entropy > 3.5:
+            return "{token}"
+
+    # Tier 3b: Hex hash — non-standard length but clearly hex + high entropy
+    # Catches hex strings like API keys that don't match standard hash lengths
+    if STRICT_HEX_PATTERN.match(segment) and seg_len >= 16:
+        entropy = _shannon_entropy(segment)
+        if entropy > 3.0:
+            return "{hash}"
+
+    return None
 
 
 def merge(
@@ -121,11 +231,12 @@ def merge(
 
 
 def normalize_url(url: str) -> str:
-    """Normalize a URL for clustering.
+    """Normalize a URL for clustering using multi-tier segment classification.
 
     - Replace UUID-pattern segments with {uuid}
     - Replace pure integer segments with {id}
-    - Replace base64-like segments with {token}
+    - Replace hex hash segments with {hash} (entropy + length whitelist)
+    - Replace base64/opaque token segments with {token} (modulus + disambiguator)
     - Lowercase scheme and host
     - Strip trailing slash and query string
     """
@@ -139,7 +250,7 @@ def normalize_url(url: str) -> str:
     # Strip trailing slash
     path = path.rstrip("/")
 
-    # Normalize each segment
+    # Normalize each segment using the multi-tier classifier
     segments = path.split("/")
     normalized_segments = []
 
@@ -148,14 +259,9 @@ def normalize_url(url: str) -> str:
             normalized_segments.append("")
             continue
 
-        if UUID_PATTERN.match(segment):
-            normalized_segments.append("{uuid}")
-        elif INTEGER_PATTERN.match(segment) and len(segment) <= 20:
-            normalized_segments.append("{id}")
-        elif HEX_PATTERN.match(segment) and len(segment) >= 16:
-            normalized_segments.append("{hash}")
-        elif BASE64_PATTERN.match(segment) and len(segment) > 20:
-            normalized_segments.append("{token}")
+        classification = _classify_segment(segment)
+        if classification:
+            normalized_segments.append(classification)
         else:
             normalized_segments.append(segment)
 
@@ -254,7 +360,7 @@ def _build_action_from_cluster(
         has_dynamic=has_dynamic,
         url_templates_agree=_url_templates_agree(cluster),
         has_200_response=_has_200_response(cluster),
-        url_has_opaque_hash=bool(HEX_PATTERN.search(cluster.normalized_url)),
+        url_has_opaque_hash=bool(STRICT_HEX_PATTERN.search(cluster.normalized_url)),
         is_static_only_with_concat=has_static and not has_dynamic and any(
             f.is_dynamic_url for f in cluster.static_findings
         ),

@@ -9,11 +9,13 @@ import hashlib
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class ComponentInfo(BaseModel):
     """Declared Android component (activity, service, receiver, or provider)."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     name: str
     component_type: str  # "activity", "service", "receiver", "provider"
@@ -27,6 +29,8 @@ class IngestManifest(BaseModel):
     All downstream layers read from this manifest to locate decompiled sources,
     understand app metadata, and scope their analysis.
     """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     # Identity
     apk_sha256: str = Field(description="SHA-256 hex digest of the original APK file")

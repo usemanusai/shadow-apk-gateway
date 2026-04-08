@@ -6,9 +6,9 @@ Frida hooks populate all mandatory fields; optional fields are filled by post-pr
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class TraceRecord(BaseModel):
@@ -16,6 +16,11 @@ class TraceRecord(BaseModel):
 
     Produced by Frida hooks and post-processed with UI context correlation.
     """
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        ser_json_bytes="hex",
+    )
 
     # Identity
     trace_id: str = Field(description="UUID for this trace record")
@@ -55,6 +60,10 @@ class TraceRecord(BaseModel):
     tls_intercepted: bool = False
     pinning_bypassed: bool = False
 
-    class Config:
-        # Allow bytes fields to serialize
-        json_encoders = {bytes: lambda v: v.hex() if v else None}
+    @field_serializer("request_body_raw", "response_body_raw", when_used="json")
+    @classmethod
+    def _serialize_bytes_to_hex(cls, value: Optional[bytes], _info: Any) -> Optional[str]:
+        """Serialize bytes fields to hex strings for JSON output."""
+        if value is None:
+            return None
+        return value.hex()

@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AuthType(str, Enum):
@@ -27,6 +27,8 @@ class AuthType(str, Enum):
 class ParamSchema(BaseModel):
     """Schema for a single parameter of an API action."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     location: Literal["path", "query", "header", "body", "cookie"]
     required: bool
@@ -42,6 +44,8 @@ class ParamSchema(BaseModel):
 class EvidenceRef(BaseModel):
     """Reference to evidence supporting the existence of an action."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     source_type: Literal["smali", "har", "pcap", "jsasset", "frida_trace"]
     file_path: Optional[str] = None
     line_number: Optional[int] = None
@@ -56,6 +60,8 @@ class ActionObject(BaseModel):
     Represents a normalized, validated API endpoint with all metadata needed
     for the gateway to execute it.
     """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     # Identity
     action_id: str = Field(description="Stable UUID, deterministic from host+path+method")

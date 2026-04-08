@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from packages.core_schema.models.action_object import ActionObject
 
 
 class ActionCatalog(BaseModel):
     """Complete catalog of discovered API actions for an Android application."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     # App identity
     app_id: str = Field(description="Unique identifier for this analysis run")

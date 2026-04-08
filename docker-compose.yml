@@ -12,24 +12,28 @@ services:
       - PYTHONPATH=/app
       - LOG_LEVEL=info
     restart: unless-stopped
+    profiles:
+      - static
+      - dynamic
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/apps"]
       interval: 30s
       timeout: 5s
       retries: 3
 
-  # Emulator service for dynamic analysis (optional, requires KVM)
-  # emulator:
-  #   image: budtmo/docker-android:emulator_12.0
-  #   privileged: true
-  #   ports:
-  #     - "5554:5554"
-  #     - "5555:5555"
-  #   environment:
-  #     - EMULATOR_DEVICE=pixel_4
-  #     - WEB_VNC=true
-  #   devices:
-  #     - /dev/kvm
+  emulator:
+    image: budtmo/docker-android:emulator_12.0
+    privileged: true
+    ports:
+      - "5554:5554"
+      - "5555:5555"
+    environment:
+      - EMULATOR_DEVICE=pixel_4
+      - WEB_VNC=true
+    devices:
+      - /dev/kvm
+    profiles:
+      - dynamic
 
 volumes:
   output:
