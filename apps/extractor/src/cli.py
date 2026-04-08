@@ -104,6 +104,14 @@ def analyze(
     urls = set(f.url_path for f in findings if f.url_path)
     click.echo(f"  Unique URLs: {len(urls)}")
 
+    # Next steps guidance
+    click.echo(f"\n📌 Next steps:")
+    click.echo(f"  • Load results into the gateway:")
+    click.echo(f"      export GATEWAY_CATALOGS_DIR={out}")
+    click.echo(f"      uvicorn apps.gateway.src.main:app --host 0.0.0.0 --port 8080")
+    click.echo(f"  • Review findings with the Review CLI:")
+    click.echo(f"      python -m apps.gateway.src.review_cli list-actions {findings_out}")
+
 
 if __name__ == "__main__":
     cli()

@@ -19,6 +19,7 @@ from rich.prompt import Prompt, Confirm
 
 from packages.core_schema.models.action_catalog import ActionCatalog
 from packages.core_schema.models.action_object import ActionObject
+from packages.openapi_gen.src.generator import OpenAPIGenConfig, generate_openapi, generate_openapi_yaml
 from packages.trace_model.src.scorer import score_label
 
 console = Console()
@@ -282,5 +283,53 @@ def _build_action_detail(action: ActionObject) -> str:
     )
 
 
+def _export_openapi(
+    catalog: ActionCatalog,
+    out_dir: Path,
+    include_unapproved: bool = False,
+) -> tuple[Path, Path]:
+    """Export OpenAPI JSON and YAML specs to disk.
+
+    Returns a tuple of (json_path, yaml_path).
+    """
+    config = OpenAPIGenConfig(include_unapproved=include_unapproved)
+
+    # Generate specs
+    spec_dict = generate_openapi(catalog, config)
+    spec_yaml = generate_openapi_yaml(catalog, config)
+
+    # Build filenames from catalog metadata
+    safe_name = f"{catalog.package_name}_{catalog.version_name}"
+    json_path = out_dir / f"{safe_name}.openapi.json"
+    yaml_path = out_dir / f"{safe_name}.openapi.yaml"
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(spec_dict, indent=2))
+    yaml_path.write_text(spec_yaml)
+
+    return json_path, yaml_path
+
+
+@cli.command()
+@click.argument("catalog_path", type=click.Path(exists=True))
+@click.option("--out-dir", default=None, type=click.Path(), help="Output directory (default: same as catalog)")
+@click.option("--include-unapproved", is_flag=True, help="Include unapproved actions in the spec")
+def export(catalog_path: str, out_dir: Optional[str], include_unapproved: bool):
+    """Export OpenAPI 3.1 JSON and YAML specs from a catalog."""
+    catalog = _load_catalog(catalog_path)
+
+    if out_dir is None:
+        out_dir_path = Path(catalog_path).parent
+    else:
+        out_dir_path = Path(out_dir)
+
+    json_path, yaml_path = _export_openapi(catalog, out_dir_path, include_unapproved)
+
+    console.print(f"\n[green]✅ OpenAPI specs exported:[/green]")
+    console.print(f"  JSON: {json_path.resolve()}")
+    console.print(f"  YAML: {yaml_path.resolve()}")
+
+
 if __name__ == "__main__":
     cli()
+

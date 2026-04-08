@@ -11,92 +11,86 @@
 </h1>
 
 <p align="center">
-  <strong>Universal Android APK Endpoint Extraction & Programmable API Gateway</strong>
+  <strong>Turn Android APKs into executable, documented APIs in minutes.</strong>
 </p>
 
 <p align="center">
   <em>
-    Drop in an APK. Get back a fully documented, executable REST API.<br/>
-    Static analysis × Dynamic instrumentation × Automated replay — unified in one pipeline.
+    For security researchers, QA engineers, and integration teams.<br/>
+    Static analysis (Retrofit, OkHttp, WebView, JS, deep links) + optional dynamic instrumentation (Frida)<br/>
+    → merged action catalog → OpenAPI 3.1 → live gateway with auth, audit, and rate limiting.<br/>
+    Works 100% offline with static-only mode; dynamic mode uses Docker + emulator + KVM.
   </em>
 </p>
 
 <br/>
 
 <p align="center">
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-features">Features</a> •
-  <a href="#-api-reference">API Reference</a> •
+  <a href="#-30-second-quickstart">Quick Start</a> •
+  <a href="#-how-it-works">How It Works</a> •
+  <a href="#-static-analysis">Static Analysis</a> •
+  <a href="#-dynamic-analysis">Dynamic Analysis</a> •
+  <a href="#-review-cli">Review CLI</a> •
+  <a href="#-gateway-api">Gateway API</a> •
+  <a href="#-configuration">Configuration</a> •
   <a href="#-faq--deep-dives">FAQ</a> •
   <a href="#-contributing">Contributing</a>
 </p>
 
 ---
 
-## 🧠 What Is This?
+## 🚀 30-Second Quickstart
 
-**Shadow APK Gateway** is a first-of-its-kind platform that **reverse-engineers Android applications into fully executable API gateways** — automatically.
+Get a working gateway serving a sample API catalog in under a minute — no APK required.
 
-Most mobile apps are just thin wrappers around REST APIs. Shadow APK Gateway peels back the wrapper:
+```bash
+# Clone and install
+git clone https://github.com/usemanusai/shadow-apk-gateway.git
+cd shadow-apk-gateway
+pip install -e ".[dev]"
 
-1. **Extracts** every HTTP endpoint from APK bytecode (Retrofit annotations, OkHttp builders, WebView bridges, JS assets)
-2. **Validates** them through live Frida instrumentation on an emulator
+# Point the gateway to the sample catalog
+export GATEWAY_CATALOGS_DIR=examples/quickstart
+uvicorn apps.gateway.src.main:app --host 0.0.0.0 --port 8080
+
+# Verify
+curl http://localhost:8080/health
+curl http://localhost:8080/apps
+curl http://localhost:8080/apps/quickstart-demo/actions
+
+# OpenAPI spec
+curl http://localhost:8080/apps/quickstart-demo/spec.json | jq .
+```
+
+### Execute an action through the gateway
+
+```bash
+curl -X POST http://localhost:8080/apps/quickstart-demo/actions/qs-action-get-users/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "params": {
+      "user_id": 42,
+      "fields": "name,email"
+    }
+  }'
+```
+
+> **This uses a sample catalog.** To analyze a real APK, see [Static analysis](#-static-analysis) and [Dynamic analysis](#-dynamic-analysis) below.
+
+---
+
+## 🏗 How It Works
+
+Most mobile apps are thin wrappers around REST APIs. Shadow APK Gateway peels back the wrapper:
+
+1. **Extracts** every HTTP endpoint from APK bytecode (Retrofit annotations, OkHttp builders, WebView bridges, JS assets, deep links)
+2. **Validates** them through live Frida instrumentation on an emulator (optional)
 3. **Merges** static + dynamic evidence into a high-confidence action catalog
 4. **Generates** an OpenAPI 3.1 spec and serves a live, executable gateway
 
 The result? You go from `.apk` → **fully documented, callable API** in minutes.
 
----
-
-## 🚀 Quick Start
-
-### Installation
-
-```bash
-# Clone the repo
-git clone https://github.com/usemanusai/shadow-apk-gateway.git
-cd shadow-apk-gateway
-
-# Install with all dependencies
-pip install -e ".[dev]"
-```
-
-### Analyze an APK (Static Only)
-
-```bash
-python -m apps.extractor.src.cli analyze ./my-app.apk --output ./output
-```
-
-### Start the Gateway
-
-```bash
-# Start the API server locally
-uvicorn apps.gateway.src.main:app --host 0.0.0.0 --port 8080
-
-# Or with Docker (Static Analysis Only - Lightweight)
-docker-compose --profile static up
-
-# Or with Docker (Dynamic Analysis - Requires KVM/Emulator)
-docker-compose --profile dynamic up
-```
-
-### Review Discovered Actions
-
-```bash
-# List all discovered endpoints
-python -m apps.gateway.src.review_cli list-actions ./output/catalog.json
-
-# Interactive review session
-python -m apps.gateway.src.review_cli review ./output/catalog.json --reviewer "analyst"
-
-# Auto-approve high-confidence actions
-python -m apps.gateway.src.review_cli approve ./output/catalog.json --confidence-min 0.75
-```
-
----
-
-## 🏗 Architecture
+### Architecture
 
 ```
                          ┌───────────────────────────────────────────┐
@@ -175,6 +169,171 @@ python -m apps.gateway.src.review_cli approve ./output/catalog.json --confidence
 
 ---
 
+## 🔍 Static Analysis
+
+Analyze an APK without needing an emulator or Docker:
+
+```bash
+python -m apps.extractor.src.cli analyze --apk ./my-app.apk --out ./output
+```
+
+This decompiles the APK, runs 5 bytecode parsers (Retrofit, OkHttp, WebView, JS assets, deep links), and writes:
+- `./output/ingest_manifest.json` — APK metadata
+- `./output/static_findings.json` — discovered HTTP endpoints
+
+After analysis, the CLI shows a summary and next steps for loading results into the gateway.
+
+---
+
+## 🎯 Dynamic Analysis
+
+For higher-confidence results, run dynamic analysis using Docker with an Android emulator:
+
+```bash
+# Requires KVM support on the host
+docker-compose --profile dynamic up
+```
+
+For static-only mode (lightweight, no emulator):
+
+```bash
+docker-compose --profile static up
+```
+
+Dynamic analysis uses Frida hooks to capture live HTTP requests, then merges them with static findings for maximum coverage.
+
+---
+
+## 📋 Review CLI
+
+Inspect, approve, and export discovered actions before they go live:
+
+```bash
+# List all discovered endpoints
+python -m apps.gateway.src.review_cli list-actions ./output/catalog.json
+
+# Interactive review session
+python -m apps.gateway.src.review_cli review ./output/catalog.json --reviewer "analyst"
+
+# Auto-approve high-confidence actions
+python -m apps.gateway.src.review_cli approve ./output/catalog.json --confidence-min 0.75
+
+# View catalog statistics
+python -m apps.gateway.src.review_cli stats ./output/catalog.json
+
+# Export OpenAPI 3.1 spec to disk
+python -m apps.gateway.src.review_cli export ./output/catalog.json --out-dir ./specs
+python -m apps.gateway.src.review_cli export ./output/catalog.json --include-unapproved
+```
+
+---
+
+## 📡 Gateway API
+
+### Starting the Gateway
+
+```bash
+# Start the API server locally
+uvicorn apps.gateway.src.main:app --host 0.0.0.0 --port 8080
+```
+
+### Auto-load catalogs from a directory
+
+If you have one or more `catalog.json` files in a folder (e.g. `./output`), you can auto-load them at startup:
+
+```bash
+export GATEWAY_CATALOGS_DIR=./output
+uvicorn apps.gateway.src.main:app --host 0.0.0.0 --port 8080
+```
+
+Then visit `/apps` to confirm they are loaded.
+
+### Core Endpoints
+
+| Endpoint | Method | Description |
+|:--|:--:|:--|
+| `/health` | `GET` | Health check (exempt from auth) |
+| `/apps` | `GET` | List all indexed applications |
+| `/apps/{id}` | `GET` | Retrieve app metadata & stats |
+| `/apps/{id}/actions` | `GET` | List discovered API actions |
+| `/apps/{id}/actions/{aid}` | `GET` | Full action detail with evidence |
+| `/apps/{id}/actions/{aid}` | `PATCH` | Approve, reject, or annotate an action |
+| `/apps/{id}/actions/{aid}/execute` | `POST` | **Execute** the action with live HTTP |
+| `/apps/{id}/spec.json` | `GET` | Download OpenAPI 3.1 spec (JSON) |
+| `/apps/{id}/spec.yaml` | `GET` | Download OpenAPI 3.1 spec (YAML) |
+| `/apps/{id}/sessions/start` | `POST` | Bootstrap an authenticated session |
+| `/jobs` | `POST` | Submit an APK for full pipeline analysis |
+
+### Example: Execute a Discovered Action
+
+```bash
+curl -X POST http://localhost:8080/apps/abc123/actions/action-001/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "params": {
+      "user_id": 42,
+      "fields": "name,email"
+    },
+    "session_id": "sess_xxxx"
+  }'
+```
+
+---
+
+## 🔑 OpenAPI Generation
+
+The gateway generates OpenAPI 3.1 specs on the fly:
+
+```bash
+# Via the gateway
+curl http://localhost:8080/apps/{app_id}/spec.json | jq .
+curl http://localhost:8080/apps/{app_id}/spec.yaml
+
+# Via the Review CLI (to disk)
+python -m apps.gateway.src.review_cli export ./output/catalog.json
+```
+
+Specs include security schemes, request body schemas, path/query parameters, and custom `x-risk-tags` / `x-confidence` extensions.
+
+---
+
+## ⚙️ Configuration
+
+Key environment variables:
+
+| Variable | Required | Default | Description |
+|:--|:--:|:--|:--|
+| `GATEWAY_API_KEY` | No | — | Enables API key auth middleware when set |
+| `GATEWAY_FERNET_KEY` | No | Auto-generated | Persistent Fernet key for session encryption |
+| `GATEWAY_CATALOGS_DIR` | No | — | Auto-load `catalog.json` files from this directory at startup |
+| `SKIP_DYNAMIC` | No | — | Used by `docker-compose.static.yml` to skip dynamic features |
+
+When `GATEWAY_CATALOGS_DIR` is not set, the gateway starts with no catalogs loaded (existing behavior). When set but the directory is missing or empty, the gateway still starts normally.
+
+---
+
+## 📊 Confidence Scoring
+
+Every discovered action receives a confidence score (0.0 → 1.0) based on evidence signals:
+
+| Signal | Weight | Description |
+|:--|:--:|:--|
+| Dynamic trace exists | **+0.40** | Frida captured a live request |
+| Static finding exists | **+0.25** | Parser found bytecode evidence |
+| URL templates agree | **+0.15** | Static and dynamic URLs match |
+| HTTP 2xx response seen | **+0.10** | Endpoint returned a success status |
+| Static-only with concatenation | **−0.15** | URL built dynamically, less reliable |
+| Native library in call stack | **−0.20** | May be an internal/native call |
+| Opaque hash in URL | **−0.10** | Non-deterministic URL segment |
+
+| Score Range | Label | Meaning |
+|:--:|:--:|:--|
+| `≥ 0.75` | 🟢 **High** | Strong evidence from multiple sources |
+| `0.40 – 0.74` | 🟡 **Medium** | Likely valid, may need review |
+| `< 0.40` | 🔴 **Low** | Uncertain, requires manual verification |
+
+---
+
 ## 📂 Project Structure
 
 ```
@@ -242,43 +401,15 @@ shadow-apk-gateway/
 │           ├── rate_limit.py       # Token bucket limiter
 │           └── auth.py             # API key middleware
 │
+├── 📁 examples/                     # Sample catalogs and quickstart
+│   └── quickstart/
+│       ├── catalog.json            # Sample 3-action catalog
+│       └── README.md               # 30-second quickstart guide
+│
 ├── 🧪 tests/                       # Unit test suite
 ├── 🐳 Dockerfile                   # Multi-stage production build
 ├── 🐳 docker-compose.yml           # Service orchestration
 └── 📋 pyproject.toml               # Project configuration
-```
-
----
-
-## 📡 API Reference
-
-### Core Endpoints
-
-| Endpoint | Method | Description |
-|:--|:--:|:--|
-| `/apps` | `GET` | List all indexed applications |
-| `/apps/{id}` | `GET` | Retrieve app metadata & stats |
-| `/apps/{id}/actions` | `GET` | List discovered API actions |
-| `/apps/{id}/actions/{aid}` | `GET` | Full action detail with evidence |
-| `/apps/{id}/actions/{aid}` | `PATCH` | Approve, reject, or annotate an action |
-| `/apps/{id}/actions/{aid}/execute` | `POST` | **Execute** the action with live HTTP |
-| `/apps/{id}/spec.json` | `GET` | Download OpenAPI 3.1 spec (JSON) |
-| `/apps/{id}/spec.yaml` | `GET` | Download OpenAPI 3.1 spec (YAML) |
-| `/apps/{id}/sessions/start` | `POST` | Bootstrap an authenticated session |
-| `/jobs` | `POST` | Submit an APK for full pipeline analysis |
-
-### Example: Execute a Discovered Action
-
-```bash
-curl -X POST http://localhost:8080/apps/abc123/actions/action-001/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "params": {
-      "user_id": 42,
-      "fields": "name,email"
-    },
-    "session_id": "sess_xxxx"
-  }'
 ```
 
 ---
@@ -292,30 +423,6 @@ python -m pytest tests/ -v
 # Run with coverage
 python -m pytest tests/ --cov=packages --cov=apps -v
 ```
-
-**Current status:** `233 tests passing` across scorer, merger, capture, OpenAPI generator, replayer, session management, auth middleware, and gateway components.
-
----
-
-## 📊 Confidence Scoring
-
-Every discovered action receives a confidence score (0.0 → 1.0) based on evidence signals:
-
-| Signal | Weight | Description |
-|:--|:--:|:--|
-| Dynamic trace exists | **+0.40** | Frida captured a live request |
-| Static finding exists | **+0.25** | Parser found bytecode evidence |
-| URL templates agree | **+0.15** | Static and dynamic URLs match |
-| HTTP 2xx response seen | **+0.10** | Endpoint returned a success status |
-| Static-only with concatenation | **−0.15** | URL built dynamically, less reliable |
-| Native library in call stack | **−0.20** | May be an internal/native call |
-| Opaque hash in URL | **−0.10** | Non-deterministic URL segment |
-
-| Score Range | Label | Meaning |
-|:--:|:--:|:--|
-| `≥ 0.75` | 🟢 **High** | Strong evidence from multiple sources |
-| `0.40 – 0.74` | 🟡 **Medium** | Likely valid, may need review |
-| `< 0.40` | 🔴 **Low** | Uncertain, requires manual verification |
 
 ---
 
@@ -430,52 +537,6 @@ This is essentially **automated API regression testing**, derived entirely from 
 All dynamic analysis runs on **local emulators you control**. The tool does not attack, exploit, or connect to servers you don't own. The SSL pinning bypass only works on the instrumented device/emulator, not on remote servers.
 
 **Always ensure you have proper authorization before analyzing any application.**
-
-</details>
-
-<details>
-<summary><strong>🧠 "Why Does Code Complexity Matter?"</strong></summary>
-
-<br/>
-
-When engineering systems scale, particularly in dynamic/static analysis pipelines like this Gateway, **code complexity** becomes the highest tax on developer velocity. Hard-to-read code with deeply nested logic or untamed abstractions leads to bugs, downtime, and developer burnout. 
-
-In Shadow APK Gateway, we embrace **clean architecture** to combat this:
-- Code is segregated into clear layers (Ingest -> Parse -> Merge -> Serve).
-- Data flows deterministically via Pydantic schemas.
-- By keeping our complexity low and structured, security researchers and contributors can effortlessly extend the system (e.g., adding an iOS protocol parser) without breaking the core engine.
-
-</details>
-
-<details>
-<summary><strong>🔐 "The Significance of Data Encryption in the Gateway"</strong></summary>
-
-<br/>
-
-As a security tool handling reverse-engineered APIs, protecting sensitive state is non-negotiable. 
-
-Shadow APK Gateway goes beyond basic API proxying by embedding enterprise-grade data encryption:
-- **Session Protection**: We utilize `Fernet` symmetric encryption to cryptographically secure API credentials natively inside session tokens.
-- **Timing Attack Resilience**: API key validation happens via `HMAC-SHA256 constant-time` comparison, preventing attackers from guessing keys byte-by-byte via latency profiling.
-- **Audit Masking**: PII, passwords, and tokens are recursively redacted before logs ever hit the disk.
-
-Encryption ensures that even if the host environment is compromised, the intercepted application credentials remain mathematically sealed.
-
-</details>
-
-<details>
-<summary><strong>📱 "Why User Experience is Essential in App Development (Even for DevTools)"</strong></summary>
-
-<br/>
-
-There is a myth that security and CLI tools don't need "User Experience" (UX). But a frictionless DX (Developer Experience) *is* UX. 
-
-If a tool requires 40 undocumented steps to boot an emulator, users will abandon it. We obsess over UX in Shadow APK Gateway:
-- **Zero-Config Static Mode**: `docker-compose --profile static up` lets you parse APIs instantly, skipping the heavyweight Android emulator entirely.
-- **Interactive Review CLI**: Approving thousands of endpoints uses a Rich-powered, colorful TUI (Terminal User Interface).
-- **Auto-Generated OpenAPI**: Dropping specs directly into Swagger UI provides a visual, interactive canvas to explore APIs immediately.
-
-Great UX prevents user errors—and in security tooling, preventing user errors prevents vulnerabilities.
 
 </details>
 

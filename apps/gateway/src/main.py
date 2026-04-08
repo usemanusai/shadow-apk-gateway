@@ -7,6 +7,8 @@ session management, and job submission endpoints.
 from __future__ import annotations
 
 import json
+import logging
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -48,6 +50,35 @@ _executor = Executor()
 _session_manager = SessionManager()
 _audit_logger = AuditLogger()
 _rate_limiter = RateLimiter()
+
+logger = logging.getLogger("shadow_apk_gateway")
+
+
+@app.on_event("startup")
+async def _auto_load_catalogs() -> None:
+    """Load catalogs from GATEWAY_CATALOGS_DIR at startup (if configured)."""
+    catalogs_dir = os.environ.get("GATEWAY_CATALOGS_DIR")
+    if not catalogs_dir:
+        return
+
+    catalog_path = Path(catalogs_dir)
+    if not catalog_path.is_dir():
+        logger.warning(
+            "GATEWAY_CATALOGS_DIR=%s does not exist or is not a directory; skipping auto-load",
+            catalogs_dir,
+        )
+        return
+
+    loaded = 0
+    for json_file in sorted(catalog_path.glob("catalog.json")):
+        try:
+            load_catalog_from_file(json_file)
+            loaded += 1
+            logger.info("Auto-loaded catalog from %s", json_file)
+        except Exception:
+            logger.exception("Failed to load catalog from %s", json_file)
+
+    logger.info("Auto-load complete: %d catalog(s) loaded from %s", loaded, catalogs_dir)
 
 
 def load_catalog(catalog: ActionCatalog) -> None:

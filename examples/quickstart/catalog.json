@@ -1,0 +1,131 @@
+{
+    "app_id": "quickstart-demo",
+    "package_name": "com.example.quickstart",
+    "version_name": "1.0.0",
+    "version_code": 1,
+    "analysis_timestamp": "2025-01-01T00:00:00Z",
+    "static_finding_count": 5,
+    "trace_record_count": 0,
+    "actions": [
+        {
+            "action_id": "qs-action-get-users",
+            "source": "static",
+            "app_id": "quickstart-demo",
+            "package_name": "com.example.quickstart",
+            "version_name": "1.0.0",
+            "version_code": 1,
+            "method": "GET",
+            "url_template": "/api/v1/users/{user_id}",
+            "base_url": "https://api.example.com",
+            "params": [
+                {
+                    "name": "user_id",
+                    "location": "path",
+                    "required": true,
+                    "type": "integer",
+                    "example": "42",
+                    "description": "Numeric user identifier",
+                    "sensitive": false
+                },
+                {
+                    "name": "fields",
+                    "location": "query",
+                    "required": false,
+                    "type": "string",
+                    "example": "name,email",
+                    "description": "Comma-separated list of fields to return",
+                    "sensitive": false
+                }
+            ],
+            "auth_requirements": [
+                "bearer"
+            ],
+            "confidence_score": 0.85,
+            "risk_tags": [],
+            "approved": true,
+            "approved_by": "demo",
+            "notes": "Sample approved GET action for the quickstart demo",
+            "evidence": [],
+            "session_dependencies": [],
+            "preconditions": []
+        },
+        {
+            "action_id": "qs-action-post-login",
+            "source": "static",
+            "app_id": "quickstart-demo",
+            "package_name": "com.example.quickstart",
+            "version_name": "1.0.0",
+            "version_code": 1,
+            "method": "POST",
+            "url_template": "/api/v1/auth/login",
+            "base_url": "https://api.example.com",
+            "params": [
+                {
+                    "name": "email",
+                    "location": "body",
+                    "required": true,
+                    "type": "string",
+                    "example": "user@example.com",
+                    "description": "Account email address",
+                    "sensitive": false
+                },
+                {
+                    "name": "password",
+                    "location": "body",
+                    "required": true,
+                    "type": "string",
+                    "example": "hunter2",
+                    "description": "Account password",
+                    "sensitive": true
+                }
+            ],
+            "auth_requirements": [
+                "none"
+            ],
+            "confidence_score": 0.90,
+            "risk_tags": [
+                "login"
+            ],
+            "approved": true,
+            "approved_by": "demo",
+            "notes": "Login endpoint — sensitive params are masked in audit logs",
+            "evidence": [],
+            "session_dependencies": [],
+            "preconditions": []
+        },
+        {
+            "action_id": "qs-action-delete-draft",
+            "source": "static",
+            "app_id": "quickstart-demo",
+            "package_name": "com.example.quickstart",
+            "version_name": "1.0.0",
+            "version_code": 1,
+            "method": "DELETE",
+            "url_template": "/api/internal/drafts/{draft_id}",
+            "base_url": "https://api.example.com",
+            "params": [
+                {
+                    "name": "draft_id",
+                    "location": "path",
+                    "required": true,
+                    "type": "string",
+                    "description": "Draft resource identifier (UUID)",
+                    "sensitive": false
+                }
+            ],
+            "auth_requirements": [
+                "bearer"
+            ],
+            "confidence_score": 0.30,
+            "risk_tags": [
+                "destructive"
+            ],
+            "approved": false,
+            "approved_by": null,
+            "notes": "Low-confidence finding — URL may be constructed dynamically",
+            "evidence": [],
+            "session_dependencies": [],
+            "preconditions": []
+        }
+    ]
+}
