@@ -71,11 +71,14 @@ python -m apps.extractor.src.cli analyze ./my-app.apk --output ./output
 ### Start the Gateway
 
 ```bash
-# Start the API server
+# Start the API server locally
 uvicorn apps.gateway.src.main:app --host 0.0.0.0 --port 8080
 
-# Or with Docker
-docker-compose up
+# Or with Docker (Static Analysis Only - Lightweight)
+docker-compose --profile static up
+
+# Or with Docker (Dynamic Analysis - Requires KVM/Emulator)
+docker-compose --profile dynamic up
 ```
 
 ### Review Discovered Actions
@@ -290,7 +293,7 @@ python -m pytest tests/ -v
 python -m pytest tests/ --cov=packages --cov=apps -v
 ```
 
-**Current status:** `41 tests passing` across scorer, merger, capture, OpenAPI generator, and gateway components.
+**Current status:** `233 tests passing` across scorer, merger, capture, OpenAPI generator, replayer, session management, auth middleware, and gateway components.
 
 ---
 
@@ -430,6 +433,52 @@ All dynamic analysis runs on **local emulators you control**. The tool does not 
 
 </details>
 
+<details>
+<summary><strong>🧠 "Why Does Code Complexity Matter?"</strong></summary>
+
+<br/>
+
+When engineering systems scale, particularly in dynamic/static analysis pipelines like this Gateway, **code complexity** becomes the highest tax on developer velocity. Hard-to-read code with deeply nested logic or untamed abstractions leads to bugs, downtime, and developer burnout. 
+
+In Shadow APK Gateway, we embrace **clean architecture** to combat this:
+- Code is segregated into clear layers (Ingest -> Parse -> Merge -> Serve).
+- Data flows deterministically via Pydantic schemas.
+- By keeping our complexity low and structured, security researchers and contributors can effortlessly extend the system (e.g., adding an iOS protocol parser) without breaking the core engine.
+
+</details>
+
+<details>
+<summary><strong>🔐 "The Significance of Data Encryption in the Gateway"</strong></summary>
+
+<br/>
+
+As a security tool handling reverse-engineered APIs, protecting sensitive state is non-negotiable. 
+
+Shadow APK Gateway goes beyond basic API proxying by embedding enterprise-grade data encryption:
+- **Session Protection**: We utilize `Fernet` symmetric encryption to cryptographically secure API credentials natively inside session tokens.
+- **Timing Attack Resilience**: API key validation happens via `HMAC-SHA256 constant-time` comparison, preventing attackers from guessing keys byte-by-byte via latency profiling.
+- **Audit Masking**: PII, passwords, and tokens are recursively redacted before logs ever hit the disk.
+
+Encryption ensures that even if the host environment is compromised, the intercepted application credentials remain mathematically sealed.
+
+</details>
+
+<details>
+<summary><strong>📱 "Why User Experience is Essential in App Development (Even for DevTools)"</strong></summary>
+
+<br/>
+
+There is a myth that security and CLI tools don't need "User Experience" (UX). But a frictionless DX (Developer Experience) *is* UX. 
+
+If a tool requires 40 undocumented steps to boot an emulator, users will abandon it. We obsess over UX in Shadow APK Gateway:
+- **Zero-Config Static Mode**: `docker-compose --profile static up` lets you parse APIs instantly, skipping the heavyweight Android emulator entirely.
+- **Interactive Review CLI**: Approving thousands of endpoints uses a Rich-powered, colorful TUI (Terminal User Interface).
+- **Auto-Generated OpenAPI**: Dropping specs directly into Swagger UI provides a visual, interactive canvas to explore APIs immediately.
+
+Great UX prevents user errors—and in security tooling, preventing user errors prevents vulnerabilities.
+
+</details>
+
 ---
 
 ## 🗺 Roadmap
@@ -461,9 +510,10 @@ docker-compose up --build
 
 The Docker image includes:
 - Python 3.11 slim runtime
-- OpenJDK 17 (for apktool)
+- OpenJDK 17 (for apktool pinned to v2.9.3)
+- Non-root `gateway` user for enhanced security
 - All Python dependencies pre-installed
-- Health check on `/apps` endpoint
+- Health check on `/health` endpoint
 
 ---
 
