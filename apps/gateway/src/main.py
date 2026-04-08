@@ -22,6 +22,7 @@ from apps.gateway.src.executor import ExecutionRequest, ExecutionResult, Executo
 from apps.gateway.src.session import SessionManager, SessionStartRequest
 from apps.gateway.src.audit import AuditLogger
 from apps.gateway.src.rate_limit import RateLimiter
+from apps.gateway.src.auth import AuthMiddleware
 
 # Application state
 app = FastAPI(
@@ -30,12 +31,16 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# CORS — allow all origins for development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Auth middleware — activated only when GATEWAY_API_KEY is set
+app.add_middleware(AuthMiddleware)
 
 # In-memory stores (replaced with persistent stores in production)
 _catalogs: dict[str, ActionCatalog] = {}
@@ -57,6 +62,18 @@ def load_catalog_from_file(path: str | Path) -> ActionCatalog:
     catalog = ActionCatalog.model_validate(data)
     load_catalog(catalog)
     return catalog
+
+
+# === Health Check ===
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint — exempt from auth middleware."""
+    return {
+        "status": "healthy",
+        "version": "1.0.0",
+        "loaded_apps": len(_catalogs),
+    }
 
 
 # === App Routes ===

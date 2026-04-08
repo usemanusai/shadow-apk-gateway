@@ -70,6 +70,60 @@ class TestExecutor:
         query = executor._build_query_params(action, {"page": 1, "limit": 20})
         assert query == {"page": "1", "limit": "20"}
 
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient.request")
+    async def test_execute_success(self, mock_request):
+        """Test full successful execution with httpx."""
+        mock_response = httpx.Response(
+            status_code=200, 
+            json={"status": "ok"}, 
+            headers={"X-Test": "Passed"},
+            request=httpx.Request("POST", "https://api.example.com")
+        )
+        mock_request.return_value = mock_response
+
+        executor = Executor()
+        action = _make_action(
+            method="POST",
+            url_template="/api/test",
+            params=[ParamSchema(name="Auth", location="header", required=True, type="string")]
+        )
+        
+        request = ExecutionRequest(
+            action=action, 
+            params={"Auth": "Bearer xyz"},
+            timeout=5.0
+        )
+        
+        result = await executor.execute(request)
+        
+        assert result.status_code == 200
+        assert result.body == {"status": "ok"}
+        
+        # Verify httpx was called correctly
+        mock_request.assert_called_once()
+        kwargs = mock_request.call_args.kwargs
+        assert kwargs["method"] == "POST"
+        assert kwargs["url"] == "https://api.example.com/api/test"
+        assert kwargs["headers"] == {"Auth": "Bearer xyz"}
+
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient.request")
+    async def test_execute_timeout_retries(self, mock_request):
+        """Test executor correctly retries on timeout."""
+        mock_request.side_effect = httpx.TimeoutException("Timeout")
+        
+        executor = Executor()
+        action = _make_action(method="GET", url_template="/timeout")
+        
+        request = ExecutionRequest(action=action, retries=2)
+        result = await executor.execute(request)
+        
+        # Should gracefully fail after retries
+        assert result.status_code == 502
+        assert mock_request.call_count == 2
+        assert "timed out" in result.error
+
 
 class TestRateLimiter:
     """Test the rate limiter."""

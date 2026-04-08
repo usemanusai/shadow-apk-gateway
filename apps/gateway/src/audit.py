@@ -1,26 +1,58 @@
 """Audit Logger — Structured JSON audit logging for action executions.
 
 Writes one JSON line per execution to a configurable log file.
-Masks sensitive fields to prevent credential leakage.
+Masks sensitive fields to prevent credential leakage:
+- URL query parameters (token, password, secret, key, auth)
+- HTTP headers (Authorization, Cookie, Set-Cookie, X-API-Key)
+- Request body fields (password, secret, token, credential, cvv, card_number)
 """
 
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 
 REDACTED = "***REDACTED***"
+
+# Sensitive header names (case-insensitive matching)
+SENSITIVE_HEADERS = frozenset({
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+    "x-gateway-key",
+    "proxy-authorization",
+})
+
+# Sensitive body field names (case-insensitive matching)
+SENSITIVE_BODY_FIELDS = frozenset({
+    "password",
+    "secret",
+    "token",
+    "access_token",
+    "refresh_token",
+    "credential",
+    "credentials",
+    "cvv",
+    "card_number",
+    "card",
+    "ssn",
+    "api_key",
+    "apikey",
+    "private_key",
+})
 
 
 class AuditLogger:
     """Structured audit logger for gateway action executions.
 
     Writes JSON-lines (JSONL) to a configurable log file.
-    All sensitive parameter values are masked in the output.
+    All sensitive parameter values, headers, and body fields are masked.
     """
 
     def __init__(self, log_path: Optional[str | Path] = None):
@@ -37,11 +69,14 @@ class AuditLogger:
         latency_ms: int,
         error: Optional[str] = None,
         sensitive_params: Optional[list[str]] = None,
+        request_headers: Optional[dict[str, str]] = None,
+        request_body: Optional[dict[str, Any]] = None,
     ) -> dict:
         """Log an action execution event.
 
         Sensitive parameter names are recorded but their values in the
-        URL are masked with ***REDACTED***.
+        URL are masked with ***REDACTED***. Headers and body fields
+        containing sensitive data are also masked.
         """
         correlation_id = str(uuid.uuid4())
 
@@ -49,13 +84,21 @@ class AuditLogger:
         masked_url = request_url
         if sensitive_params:
             for param_name in sensitive_params:
-                # Mask query param values
-                import re
                 masked_url = re.sub(
                     rf'({re.escape(param_name)}=)[^&]*',
                     rf'\1{REDACTED}',
                     masked_url,
                 )
+
+        # Mask sensitive headers
+        masked_headers: Optional[dict[str, str]] = None
+        if request_headers:
+            masked_headers = _mask_headers(request_headers)
+
+        # Mask sensitive body fields
+        masked_body: Optional[dict[str, Any]] = None
+        if request_body:
+            masked_body = _mask_body(request_body)
 
         entry = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -69,6 +112,11 @@ class AuditLogger:
             "latency_ms": latency_ms,
             "error": error,
         }
+
+        if masked_headers is not None:
+            entry["request_headers"] = masked_headers
+        if masked_body is not None:
+            entry["request_body"] = masked_body
 
         # Store in memory
         self._entries.append(entry)
@@ -100,3 +148,27 @@ class AuditLogger:
     def clear(self) -> None:
         """Clear in-memory entries."""
         self._entries.clear()
+
+
+def _mask_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Mask sensitive HTTP header values."""
+    masked = {}
+    for name, value in headers.items():
+        if name.lower() in SENSITIVE_HEADERS:
+            masked[name] = REDACTED
+        else:
+            masked[name] = value
+    return masked
+
+
+def _mask_body(body: dict[str, Any]) -> dict[str, Any]:
+    """Recursively mask sensitive fields in a request body."""
+    masked: dict[str, Any] = {}
+    for key, value in body.items():
+        if key.lower() in SENSITIVE_BODY_FIELDS:
+            masked[key] = REDACTED
+        elif isinstance(value, dict):
+            masked[key] = _mask_body(value)
+        else:
+            masked[key] = value
+    return masked

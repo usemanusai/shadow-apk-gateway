@@ -2,10 +2,16 @@
 
 Manages sessions per (app_id, tenant_id). Stores credentials encrypted
 at rest using Fernet symmetric encryption.
+
+Key management:
+- If GATEWAY_FERNET_KEY env var is set, uses that key (survives restarts).
+- Otherwise generates an ephemeral key (sessions lost on restart).
 """
 
 from __future__ import annotations
 
+import json
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -35,10 +41,29 @@ class Session:
     expires_at: float
     auth_headers: dict[str, str] = field(default_factory=dict)
     cookies: dict[str, str] = field(default_factory=dict)
+    execution_count: int = 0
 
     @property
     def is_expired(self) -> bool:
         return time.time() > self.expires_at
+
+
+def _resolve_fernet_key() -> bytes:
+    """Resolve the Fernet encryption key from environment or generate one.
+
+    Supports GATEWAY_FERNET_KEY env var for deterministic key injection,
+    which ensures sessions survive gateway restarts.
+    """
+    env_key = os.environ.get("GATEWAY_FERNET_KEY", "")
+    if env_key:
+        # Validate the key is a valid Fernet key
+        try:
+            Fernet(env_key.encode("utf-8"))
+            return env_key.encode("utf-8")
+        except Exception:
+            # Fall through to generate a new key if invalid
+            pass
+    return Fernet.generate_key()
 
 
 class SessionManager:
@@ -46,15 +71,22 @@ class SessionManager:
 
     Sessions expire after a configurable TTL (default: 3600s).
     Credentials are stored encrypted using Fernet.
+
+    Features:
+    - Fernet key persistence via GATEWAY_FERNET_KEY env var
+    - Session credential rotation after execution_count threshold
+    - Session expiry and cleanup
     """
 
     def __init__(
         self,
         ttl_seconds: int = 3600,
         encryption_key: Optional[bytes] = None,
+        rotation_threshold: int = 100,
     ):
         self.ttl_seconds = ttl_seconds
-        self._fernet = Fernet(encryption_key or Fernet.generate_key())
+        self.rotation_threshold = rotation_threshold
+        self._fernet = Fernet(encryption_key or _resolve_fernet_key())
         self._sessions: dict[str, Session] = {}  # key = f"{app_id}:{tenant_id}"
         self._encrypted_credentials: dict[str, bytes] = {}
 
@@ -85,7 +117,6 @@ class SessionManager:
 
         # Store encrypted credentials
         if credentials:
-            import json
             cred_json = json.dumps(credentials).encode()
             encrypted = self._fernet.encrypt(cred_json)
             self._encrypted_credentials[f"{app_id}:{tenant_id}"] = encrypted
@@ -123,7 +154,7 @@ class SessionManager:
                         if set_cookie:
                             session.cookies["session"] = set_cookie
 
-                except Exception as e:
+                except Exception:
                     # Login failed — session is created but unauthenticated
                     pass
 
@@ -153,6 +184,42 @@ class SessionManager:
 
         return result
 
+    def record_execution(self, app_id: str, tenant_id: str) -> None:
+        """Record an execution against this session and check rotation threshold."""
+        key = f"{app_id}:{tenant_id}"
+        session = self._sessions.get(key)
+        if not session:
+            return
+
+        session.execution_count += 1
+
+        # Rotate credentials encryption key after threshold
+        if session.execution_count >= self.rotation_threshold:
+            self._rotate_credentials(key)
+            session.execution_count = 0
+
+    def _rotate_credentials(self, key: str) -> None:
+        """Re-encrypt stored credentials with a fresh Fernet key.
+
+        This limits the blast radius if the encryption key is ever compromised,
+        since old ciphertext becomes undecryptable after rotation.
+        """
+        encrypted = self._encrypted_credentials.get(key)
+        if not encrypted:
+            return
+
+        try:
+            # Decrypt with current key
+            decrypted = self._fernet.decrypt(encrypted)
+            # Generate new key and re-encrypt
+            new_key = Fernet.generate_key()
+            new_fernet = Fernet(new_key)
+            self._encrypted_credentials[key] = new_fernet.encrypt(decrypted)
+            self._fernet = new_fernet
+        except Exception:
+            # If rotation fails, keep existing encryption
+            pass
+
     def clear_session(self, app_id: str, session_id: str) -> None:
         """Clear a session by session_id."""
         to_delete = []
@@ -181,6 +248,5 @@ class SessionManager:
         if not encrypted:
             return None
 
-        import json
         decrypted = self._fernet.decrypt(encrypted)
         return json.loads(decrypted)

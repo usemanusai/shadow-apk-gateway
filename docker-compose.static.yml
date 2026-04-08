@@ -1,0 +1,19 @@
+# Shadow APK Gateway — Static-Only Compose Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.static.yml up
+#
+# This override strips the emulator service, removing the need for
+# KVM, /dev/kvm, and privileged mode. Use for static-only analysis
+# where you only need smali parsing + gateway serving.
+
+services:
+  gateway:
+    profiles: [] # Run with default profile (no --profile flag needed)
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=info
+      - SKIP_DYNAMIC=true
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 15s
+      timeout: 3s
+      retries: 5

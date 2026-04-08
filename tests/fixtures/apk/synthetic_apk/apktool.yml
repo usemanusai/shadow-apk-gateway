@@ -1,0 +1,21 @@
+!!brut.androlib.meta.MetaInfo
+apkFileName: synthetic_test.apk
+compressionType: false
+doNotCompress: null
+isFrameworkApk: false
+packageInfo:
+  forcedPackageId: '127'
+  renameManifestPackage: null
+sdkInfo:
+  minSdkVersion: '26'
+  targetSdkVersion: '34'
+sharedLibrary: false
+sparseResources: false
+unknownFiles: {}
+usesFramework:
+  ids:
+  - 1
+  tag: null
+versionInfo:
+  versionCode: '1'
+  versionName: 1.0.0
