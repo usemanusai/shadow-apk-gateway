@@ -112,7 +112,7 @@ python -m apps.gateway.src.review_cli approve ./output/catalog.json --confidence
           │                                 │                                 │
    ┌──────▼──────┐                  ┌───────▼───────┐                ┌────────┴────────┐
    │   Layer 2   │                  │   Layer 3.5   │                │   Layer 4       │
-   │   Static    │──────────────────▶   Trace       │────────────────▶   Merger +      │
+   │   Static    │─────────────────▶    Trace       │───────────────▶   Merger +      │
    │   Parsers   │   RawFindings    │   Storage     │  TraceRecords  │   Scorer        │
    │             │                  │   (SQLite)    │                │                 │
    │  Retrofit   │                  │   + HAR       │                │  URL normalize  │
